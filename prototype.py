@@ -23,7 +23,7 @@ def load_advanced_rag_chain():
     print("running FINAL Multi-Query RAG Chain Setup")
 
     load_dotenv()
-    GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+    GOOGLE_API_KEY = st.secrets.get("GOOGLE_API_KEY")
     if not GOOGLE_API_KEY:
         raise ValueError("Google API key not found. Make sure you have a .env file with GOOGLE_API_KEY set.")
 
