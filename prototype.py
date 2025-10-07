@@ -2,7 +2,7 @@ import os
 import pickle
 import streamlit as st
 from datetime import datetime
-
+import tempfile
 from langchain.retrievers import ParentDocumentRetriever
 from langchain.retrievers.multi_query import MultiQueryRetriever
 from langchain.storage import InMemoryStore
@@ -25,9 +25,14 @@ def load_advanced_rag_chain():
     if not GOOGLE_API_KEY:
         raise ValueError("Google API key not found. Make sure you have a .env file with GOOGLE_API_KEY set.")
 
-    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-    VECTOR_STORE_PATH = os.path.join(BASE_DIR, "vectorstore")
-    DOC_STORE_FILE_PATH = os.path.join(BASE_DIR, "docstore.pkl")
+    if os.environ.get("STREAMLIT_RUNTIME"):
+        # Use a temp writable directory for vectorstore
+        VECTOR_STORE_PATH = tempfile.mkdtemp()
+        DOC_STORE_FILE_PATH = os.path.join(VECTOR_STORE_PATH, "docstore.pkl")
+    else:
+        BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+        VECTOR_STORE_PATH = os.path.join(BASE_DIR, "vectorstore")
+        DOC_STORE_FILE_PATH = os.path.join(BASE_DIR, "docstore.pkl")
 
     try:
         with open(DOC_STORE_FILE_PATH, "rb") as f:
