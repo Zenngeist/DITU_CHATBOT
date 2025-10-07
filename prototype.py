@@ -3,6 +3,8 @@ import os
 import tempfile
 import subprocess
 from datetime import datetime
+import pickle
+
 from langchain.retrievers import ParentDocumentRetriever
 from langchain.retrievers.multi_query import MultiQueryRetriever
 from langchain.storage import InMemoryStore
@@ -19,10 +21,10 @@ from langchain_core.messages import HumanMessage, AIMessage
 GOOGLE_API_KEY = "AIzaSyD38_6pyeKjL8GPbNy3ISa7hY2gpktqZNs"  # Replace with your key
 
 # ----------------------
-# HELPER FUNCTION
+# VECTORSTORE FETCH
 # ----------------------
 def fetch_vectorstore_from_github():
-    """Download vectorstore folder from GitHub into a temp directory."""
+    """Clone only the vectorstore folder into a temporary directory."""
     temp_dir = os.path.join(tempfile.gettempdir(), "vectorstore")
     if not os.path.exists(temp_dir):
         os.makedirs(temp_dir)
@@ -35,7 +37,9 @@ def fetch_vectorstore_from_github():
             ["git", "-C", temp_dir, "sparse-checkout", "set", "vectorstore/"],
             check=True
         )
-    return os.path.join(temp_dir, "vectorstore")
+    return temp_dir
+
+VECTOR_STORE_PATH = fetch_vectorstore_from_github()
 
 # ----------------------
 # LOAD RAG CHAIN
@@ -46,7 +50,6 @@ def load_advanced_rag_chain():
 
     # Load local docstore
     try:
-        import pickle, os
         BASE_DIR = os.path.dirname(os.path.abspath(__file__))
         DOC_STORE_FILE_PATH = os.path.join(BASE_DIR, "docstore.pkl")
         with open(DOC_STORE_FILE_PATH, "rb") as f:
@@ -58,16 +61,19 @@ def load_advanced_rag_chain():
 
     # Embeddings
     embedding_model = GoogleGenerativeAIEmbeddings(
-        model="models/text-embedding-004", 
+        model="models/text-embedding-004",
         google_api_key=GOOGLE_API_KEY
     )
 
-    # Download vectorstore from GitHub and use locally
-    VECTOR_STORE_PATH = fetch_vectorstore_from_github()
+    # Chroma vectorstore (local only, no server)
     vector_store = Chroma(
         collection_name="final_retrieval_system",
         persist_directory=VECTOR_STORE_PATH,
-        embedding_function=embedding_model
+        embedding_function=embedding_model,
+        client_settings={
+            "chroma_db_impl": "duckdb+parquet",
+            "persist_directory": VECTOR_STORE_PATH
+        }
     )
 
     # Text splitters
@@ -85,12 +91,12 @@ def load_advanced_rag_chain():
 
     # Multi-query retriever
     llm_for_queries = ChatGoogleGenerativeAI(
-        model="models/gemini-2.5-flash", 
-        temperature=0, 
+        model="models/gemini-2.5-flash",
+        temperature=0,
         google_api_key=GOOGLE_API_KEY
     )
     multi_query_retriever = MultiQueryRetriever.from_llm(
-        retriever=base_retriever, 
+        retriever=base_retriever,
         llm=llm_for_queries
     )
     print("  ✓ Multi-Query Retriever is ready.")
@@ -124,8 +130,8 @@ Helpful Answer:
     QA_PROMPT = PromptTemplate(template=qa_prompt_template, input_variables=["context", "question"])
 
     llm = ChatGoogleGenerativeAI(
-        model="models/gemini-2.5-flash", 
-        temperature=0.2, 
+        model="models/gemini-2.5-flash",
+        temperature=0.2,
         google_api_key=GOOGLE_API_KEY
     )
 
