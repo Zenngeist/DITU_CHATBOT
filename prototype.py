@@ -1,4 +1,7 @@
 import streamlit as st
+import os
+import tempfile
+import subprocess
 from datetime import datetime
 from langchain.retrievers import ParentDocumentRetriever
 from langchain.retrievers.multi_query import MultiQueryRetriever
@@ -14,7 +17,25 @@ from langchain_core.messages import HumanMessage, AIMessage
 # CONFIG
 # ----------------------
 GOOGLE_API_KEY = "AIzaSyD38_6pyeKjL8GPbNy3ISa7hY2gpktqZNs"  # Replace with your key
-CHROMA_SERVER_URL = "https://ditu-chatbot.onrender.com"  # Replace with your Render URL
+
+# ----------------------
+# HELPER FUNCTION
+# ----------------------
+def fetch_vectorstore_from_github():
+    """Download vectorstore folder from GitHub into a temp directory."""
+    temp_dir = os.path.join(tempfile.gettempdir(), "vectorstore")
+    if not os.path.exists(temp_dir):
+        os.makedirs(temp_dir)
+        repo_url = "https://github.com/Zenngeist/DITU_CHATBOT.git"
+        subprocess.run(
+            ["git", "clone", "--depth", "1", "--filter=blob:none", "--sparse", repo_url, temp_dir],
+            check=True
+        )
+        subprocess.run(
+            ["git", "-C", temp_dir, "sparse-checkout", "set", "vectorstore/"],
+            check=True
+        )
+    return os.path.join(temp_dir, "vectorstore")
 
 # ----------------------
 # LOAD RAG CHAIN
@@ -36,15 +57,16 @@ def load_advanced_rag_chain():
         raise FileNotFoundError(f"'{DOC_STORE_FILE_PATH}' not found. Upload docstore.pkl to repo.")
 
     # Embeddings
-    embedding_model = GoogleGenerativeAIEmbeddings(model="models/text-embedding-004", google_api_key=GOOGLE_API_KEY)
+    embedding_model = GoogleGenerativeAIEmbeddings(
+        model="models/text-embedding-004", 
+        google_api_key=GOOGLE_API_KEY
+    )
 
-    # Chroma vectorstore pointing to Render server
+    # Download vectorstore from GitHub and use locally
+    VECTOR_STORE_PATH = fetch_vectorstore_from_github()
     vector_store = Chroma(
         collection_name="final_retrieval_system",
-        client_settings={
-            "chroma_api_impl": "rest",
-            "chroma_server_host": CHROMA_SERVER_URL
-        },
+        persist_directory=VECTOR_STORE_PATH,
         embedding_function=embedding_model
     )
 
@@ -62,8 +84,15 @@ def load_advanced_rag_chain():
     print("  ✓ Base ParentDocumentRetriever reconstructed.")
 
     # Multi-query retriever
-    llm_for_queries = ChatGoogleGenerativeAI(model="models/gemini-2.5-flash", temperature=0, google_api_key=GOOGLE_API_KEY)
-    multi_query_retriever = MultiQueryRetriever.from_llm(retriever=base_retriever, llm=llm_for_queries)
+    llm_for_queries = ChatGoogleGenerativeAI(
+        model="models/gemini-2.5-flash", 
+        temperature=0, 
+        google_api_key=GOOGLE_API_KEY
+    )
+    multi_query_retriever = MultiQueryRetriever.from_llm(
+        retriever=base_retriever, 
+        llm=llm_for_queries
+    )
     print("  ✓ Multi-Query Retriever is ready.")
 
     # Prompts
@@ -94,7 +123,11 @@ Helpful Answer:
 """
     QA_PROMPT = PromptTemplate(template=qa_prompt_template, input_variables=["context", "question"])
 
-    llm = ChatGoogleGenerativeAI(model="models/gemini-2.5-flash", temperature=0.2, google_api_key=GOOGLE_API_KEY)
+    llm = ChatGoogleGenerativeAI(
+        model="models/gemini-2.5-flash", 
+        temperature=0.2, 
+        google_api_key=GOOGLE_API_KEY
+    )
 
     qa_chain = ConversationalRetrievalChain.from_llm(
         llm=llm,
