@@ -3,10 +3,14 @@ streamlit
 langchain>=0.2
 langchain-community>=0.2
 langchain-google-genai>=1.0.0
-chromadb
+chromadb==0.4.3
 fastapi
 uvicorn
 pypdf>=4.0.0
 pymupdf
 docx2txt
 rank_bm25
+requests
+typing-extensions
+tqdm
+aiohttp
