@@ -12,19 +12,17 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.chains import ConversationalRetrievalChain
 from langchain.prompts import PromptTemplate
 from langchain_community.vectorstores import Chroma
+from chromadb.config import Settings
 from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI
 from langchain_core.messages import HumanMessage, AIMessage
 
 # ----------------------
 # CONFIG
 # ----------------------
-GOOGLE_API_KEY = "AIzaSyD38_6pyeKjL8GPbNy3ISa7hY2gpktqZNs"  # Replace with your key
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "YOUR_GOOGLE_API_KEY_HERE")  # Replace in Render Secrets
 
-# ----------------------
-# VECTORSTORE FETCH
-# ----------------------
+# Path to vectorstore (we'll fetch from GitHub if missing)
 def fetch_vectorstore_from_github():
-    """Clone only the vectorstore folder into a temporary directory."""
     temp_dir = os.path.join(tempfile.gettempdir(), "vectorstore")
     if not os.path.exists(temp_dir):
         os.makedirs(temp_dir)
@@ -39,7 +37,12 @@ def fetch_vectorstore_from_github():
         )
     return temp_dir
 
-VECTOR_STORE_PATH = fetch_vectorstore_from_github()
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+VECTOR_STORE_PATH = os.path.join(BASE_DIR, "vectorstore")
+DOC_STORE_FILE_PATH = os.path.join(BASE_DIR, "docstore.pkl")
+
+if not os.path.exists(VECTOR_STORE_PATH):
+    VECTOR_STORE_PATH = fetch_vectorstore_from_github()
 
 # ----------------------
 # LOAD RAG CHAIN
@@ -48,13 +51,12 @@ VECTOR_STORE_PATH = fetch_vectorstore_from_github()
 def load_advanced_rag_chain():
     print("Running Multi-Query RAG Chain Setup")
 
-    # Load local docstore
+    # Load docstore
     try:
-        BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-        DOC_STORE_FILE_PATH = os.path.join(BASE_DIR, "docstore.pkl")
         with open(DOC_STORE_FILE_PATH, "rb") as f:
             raw_docstore = pickle.load(f)
-        store = InMemoryStore(); store.store = raw_docstore
+        store = InMemoryStore()
+        store.store = raw_docstore
         print("  ✓ Parent document store loaded.")
     except FileNotFoundError:
         raise FileNotFoundError(f"'{DOC_STORE_FILE_PATH}' not found. Upload docstore.pkl to repo.")
@@ -65,15 +67,15 @@ def load_advanced_rag_chain():
         google_api_key=GOOGLE_API_KEY
     )
 
-    # Chroma vectorstore (local only, no server)
+    # Chroma vectorstore (local)
     vector_store = Chroma(
         collection_name="final_retrieval_system",
-        persist_directory=VECTOR_STORE_PATH,
         embedding_function=embedding_model,
-        client_settings={
-            "chroma_db_impl": "duckdb+parquet",
-            "persist_directory": VECTOR_STORE_PATH
-        }
+        persist_directory=VECTOR_STORE_PATH,
+        client_settings=Settings(
+            chroma_db_impl="duckdb+parquet",
+            persist_directory=VECTOR_STORE_PATH
+        )
     )
 
     # Text splitters
@@ -99,7 +101,7 @@ def load_advanced_rag_chain():
         retriever=base_retriever,
         llm=llm_for_queries
     )
-    print("  ✓ Multi-Query Retriever is ready.")
+    print("  ✓ Multi-Query Retriever ready.")
 
     # Prompts
     condense_question_template = (
