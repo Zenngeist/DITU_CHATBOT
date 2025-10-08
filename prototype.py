@@ -15,13 +15,14 @@ from langchain.prompts import PromptTemplate
 # V-- Make sure 'langchain-chroma' is in your requirements.txt
 from langchain_chroma import Chroma
 from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI
-from langchain_core.messages import HumanMessage, AIMessage
+# Unused message imports removed to fix the error
+# from langchain_core.messages import HumanMessage, AIMessage
 
 # ----------------------
 # CONFIG
 # ----------------------
 # Make sure to set GOOGLE_API_KEY in your Render environment variables/secrets
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+GOOGLE_API_KEY = "AIzaSyD38_6pyeKjL8GPbNy3ISa7hY2gpktqZNs"
 
 # Path to vectorstore (we'll fetch from GitHub if missing)
 def fetch_vectorstore_from_github():
@@ -108,7 +109,7 @@ def load_advanced_rag_chain():
     # CHANGED MODEL to 'gemini-pro' to resolve 404 Not Found error.
     llm_for_queries = ChatGoogleGenerativeAI(
         model="gemini-2.5-flash",
-        temperature=0,
+        temperature=0.5,
         google_api_key=GOOGLE_API_KEY
     )
     multi_query_retriever = MultiQueryRetriever.from_llm(
@@ -198,10 +199,8 @@ def handle_query(prompt):
             st.session_state.messages.append({"role": "assistant", "content": answer})
             with st.chat_message("assistant"):
                 st.write(answer)
-            st.session_state.chat_history.extend([
-                HumanMessage(content=prompt),
-                AIMessage(content=answer)
-            ])
+            # UPDATED chat history to use tuples (question, answer) for better compatibility
+            st.session_state.chat_history.append((prompt, answer))
         except Exception as e:
             error_message = f"Oof, something went wrong: {e}"
             st.session_state.messages.append({"role": "assistant", "content": error_message})
