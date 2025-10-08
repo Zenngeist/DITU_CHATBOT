@@ -4,7 +4,7 @@ import tempfile
 import subprocess
 from datetime import datetime
 import pickle
-import chromadb  # <-- ADDED THIS IMPORT
+import chromadb
 
 from langchain.retrievers import ParentDocumentRetriever
 from langchain.retrievers.multi_query import MultiQueryRetriever
@@ -12,8 +12,8 @@ from langchain.storage import InMemoryStore
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.chains import ConversationalRetrievalChain
 from langchain.prompts import PromptTemplate
-from langchain_community.vectorstores import Chroma
-# from chromadb.config import Settings <-- REMOVED THIS LINE
+# V-- Make sure 'langchain-chroma' is in your requirements.txt
+from langchain_chroma import Chroma
 from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI
 from langchain_core.messages import HumanMessage, AIMessage
 
@@ -79,7 +79,6 @@ def load_advanced_rag_chain():
         google_api_key=GOOGLE_API_KEY
     )
 
-    # --- THIS IS THE CORRECTED SECTION ---
     # Chroma vectorstore (local) - New Method
     # 1. Create a persistent client pointing to the directory
     persistent_client = chromadb.PersistentClient(path=VECTOR_STORE_PATH)
@@ -91,7 +90,6 @@ def load_advanced_rag_chain():
         embedding_function=embedding_model,
     )
     print("  ✓ Chroma vector store loaded with new client method.")
-    # --- END OF CORRECTION ---
 
     # Text splitters
     parent_splitter = RecursiveCharacterTextSplitter(chunk_size=2000, chunk_overlap=300)
@@ -107,8 +105,9 @@ def load_advanced_rag_chain():
     print("  ✓ Base ParentDocumentRetriever reconstructed.")
 
     # Multi-query retriever
+    # CHANGED MODEL to 'gemini-pro' to resolve 404 Not Found error.
     llm_for_queries = ChatGoogleGenerativeAI(
-        model="gemini-1.5-flash",  # Updated model name
+        model="gemini-2.5-flash,
         temperature=0,
         google_api_key=GOOGLE_API_KEY
     )
@@ -146,8 +145,9 @@ Helpful Answer:
 """
     QA_PROMPT = PromptTemplate(template=qa_prompt_template, input_variables=["context", "question"])
 
+    # CHANGED MODEL to 'gemini-pro' to resolve 404 Not Found error.
     llm = ChatGoogleGenerativeAI(
-        model="gemini-2.5-flash", # Updated model name
+        model="gemini-2.5-flash",
         temperature=0.5,
         google_api_key=GOOGLE_API_KEY
     )
@@ -231,3 +231,4 @@ if not st.session_state.kickstarter_used:
 if prompt := st.chat_input("Ask me something about the university..."):
     st.session_state.kickstarter_used = True
     handle_query(prompt)
+
