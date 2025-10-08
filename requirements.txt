@@ -3,6 +3,7 @@ streamlit
 pydantic==2.11.9
 langchain
 langchain-core
+langchain-community
 chromadb==0.5.0
 langchain-text-splitters==0.2.2
 langchain-google-genai==1.0.7
