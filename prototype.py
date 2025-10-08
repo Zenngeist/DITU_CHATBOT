@@ -4,6 +4,7 @@ import tempfile
 import subprocess
 from datetime import datetime
 import pickle
+import chromadb  # <-- ADDED THIS IMPORT
 
 from langchain.retrievers import ParentDocumentRetriever
 from langchain.retrievers.multi_query import MultiQueryRetriever
@@ -12,14 +13,15 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.chains import ConversationalRetrievalChain
 from langchain.prompts import PromptTemplate
 from langchain_community.vectorstores import Chroma
-from chromadb.config import Settings
+# from chromadb.config import Settings <-- REMOVED THIS LINE
 from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI
 from langchain_core.messages import HumanMessage, AIMessage
 
 # ----------------------
 # CONFIG
 # ----------------------
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "YOUR_GOOGLE_API_KEY_HERE")  # Replace in Render Secrets
+# Make sure to set GOOGLE_API_KEY in your Render environment variables/secrets
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
 # Path to vectorstore (we'll fetch from GitHub if missing)
 def fetch_vectorstore_from_github():
@@ -35,14 +37,19 @@ def fetch_vectorstore_from_github():
             ["git", "-C", temp_dir, "sparse-checkout", "set", "vectorstore/"],
             check=True
         )
-    return temp_dir
+    # The actual vectorstore files will be inside a 'vectorstore' subdirectory
+    return os.path.join(temp_dir, "vectorstore")
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 VECTOR_STORE_PATH = os.path.join(BASE_DIR, "vectorstore")
 DOC_STORE_FILE_PATH = os.path.join(BASE_DIR, "docstore.pkl")
 
+# If the vectorstore directory doesn't exist locally, fetch it from the sparse checkout
 if not os.path.exists(VECTOR_STORE_PATH):
+    print(f"Local vectorstore not found at {VECTOR_STORE_PATH}, fetching from GitHub...")
     VECTOR_STORE_PATH = fetch_vectorstore_from_github()
+    print(f"Vectorstore fetched to temporary directory: {VECTOR_STORE_PATH}")
+
 
 # ----------------------
 # LOAD RAG CHAIN
@@ -53,13 +60,18 @@ def load_advanced_rag_chain():
 
     # Load docstore
     try:
-        with open(DOC_STORE_FILE_PATH, "rb") as f:
+        # If the docstore isn't local, it should be in the parent of the temp vectorstore dir
+        docstore_path = DOC_STORE_FILE_PATH
+        if "temp" in VECTOR_STORE_PATH:
+             docstore_path = os.path.join(os.path.dirname(VECTOR_STORE_PATH), "docstore.pkl")
+
+        with open(docstore_path, "rb") as f:
             raw_docstore = pickle.load(f)
         store = InMemoryStore()
-        store.store = raw_docstore
+        store.mset(raw_docstore.items()) # Use mset for bulk loading
         print("  ✓ Parent document store loaded.")
     except FileNotFoundError:
-        raise FileNotFoundError(f"'{DOC_STORE_FILE_PATH}' not found. Upload docstore.pkl to repo.")
+        raise FileNotFoundError(f"'{docstore_path}' not found. Ensure docstore.pkl is in your repo.")
 
     # Embeddings
     embedding_model = GoogleGenerativeAIEmbeddings(
@@ -67,16 +79,19 @@ def load_advanced_rag_chain():
         google_api_key=GOOGLE_API_KEY
     )
 
-    # Chroma vectorstore (local)
+    # --- THIS IS THE CORRECTED SECTION ---
+    # Chroma vectorstore (local) - New Method
+    # 1. Create a persistent client pointing to the directory
+    persistent_client = chromadb.PersistentClient(path=VECTOR_STORE_PATH)
+
+    # 2. Load the vector store using the client and existing collection name
     vector_store = Chroma(
+        client=persistent_client,
         collection_name="final_retrieval_system",
         embedding_function=embedding_model,
-        persist_directory=VECTOR_STORE_PATH,
-        client_settings=Settings(
-            chroma_db_impl="duckdb+parquet",
-            persist_directory=VECTOR_STORE_PATH
-        )
     )
+    print("  ✓ Chroma vector store loaded with new client method.")
+    # --- END OF CORRECTION ---
 
     # Text splitters
     parent_splitter = RecursiveCharacterTextSplitter(chunk_size=2000, chunk_overlap=300)
@@ -93,7 +108,7 @@ def load_advanced_rag_chain():
 
     # Multi-query retriever
     llm_for_queries = ChatGoogleGenerativeAI(
-        model="models/gemini-2.5-flash",
+        model="gemini-1.5-flash",  # Updated model name
         temperature=0,
         google_api_key=GOOGLE_API_KEY
     )
@@ -132,7 +147,7 @@ Helpful Answer:
     QA_PROMPT = PromptTemplate(template=qa_prompt_template, input_variables=["context", "question"])
 
     llm = ChatGoogleGenerativeAI(
-        model="models/gemini-2.5-flash",
+        model="gemini-1.5-flash", # Updated model name
         temperature=0.2,
         google_api_key=GOOGLE_API_KEY
     )
@@ -154,59 +169,65 @@ Helpful Answer:
 st.set_page_config(page_title="DIT University AI Assistant", page_icon="🎓")
 st.title("DIT University AI Assistant")
 
+if not GOOGLE_API_KEY:
+    st.error("GOOGLE_API_KEY is not set. Please add it to your environment secrets.")
+    st.stop()
+
 qa_chain = load_advanced_rag_chain()
 
 if "messages" not in st.session_state:
     st.session_state.messages = [{"role": "assistant", "content": "Hey there! I'm here to help with anything DIT University related."}]
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
-if "kickstarter_shown" not in st.session_state:
-    st.session_state.kickstarter_shown = True
 
 # Display chat history
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.write(message["content"])
 
-# Quick actions
-if st.session_state.kickstarter_shown:
-    st.markdown("**Quick actions — click to auto-run a query**")
-    kickstarter_questions = [
-        ("What is the Mid term schedule?", "What is the Mid term schedule?"),
-        ("When is Youthopia fest?", "When is Youthopia fest?"),
-        ("Time Table for Today", f"What is the timetable for {datetime.now().strftime('%A')}?"),
-        ("Aaj Khaane me Kya hai?", f"What food is available in mess on {datetime.now().strftime('%A')}?")
-    ]
-    for label, actual_prompt in kickstarter_questions:
-        if st.button(label):
-            st.session_state.kickstarter_shown = False
-            st.session_state.messages.append({"role": "user", "content": actual_prompt})
-            with st.chat_message("user"): st.write(actual_prompt)
-            try:
-                with st.spinner("Searching documents..."):
-                    response = qa_chain.invoke({"question": actual_prompt, "chat_history": st.session_state.chat_history})
-                    answer = response["answer"]
-                    st.session_state.messages.append({"role": "assistant", "content": answer})
-                    with st.chat_message("assistant"): st.write(answer)
-                    st.session_state.chat_history.append(HumanMessage(content=actual_prompt))
-                    st.session_state.chat_history.append(AIMessage(content=answer))
-            except Exception as e:
-                st.session_state.messages.append({"role": "assistant", "content": f"Oof, something went wrong: {e}"})
-                with st.chat_message("assistant"): st.write(f"Oof, something went wrong: {e}")
-            break
-
-# Chat input
-if prompt := st.chat_input("Ask me something about the university..."):
+# Quick actions / Kickstarter questions
+def handle_query(prompt):
     st.session_state.messages.append({"role": "user", "content": prompt})
-    with st.chat_message("user"): st.write(prompt)
-    with st.spinner("Thinking..."):
+    with st.chat_message("user"):
+        st.write(prompt)
+
+    with st.spinner("Searching documents..."):
         try:
             response = qa_chain.invoke({"question": prompt, "chat_history": st.session_state.chat_history})
             answer = response["answer"]
             st.session_state.messages.append({"role": "assistant", "content": answer})
-            with st.chat_message("assistant"): st.write(answer)
-            st.session_state.chat_history.append(HumanMessage(content=prompt))
-            st.session_state.chat_history.append(AIMessage(content=answer))
+            with st.chat_message("assistant"):
+                st.write(answer)
+            st.session_state.chat_history.extend([
+                HumanMessage(content=prompt),
+                AIMessage(content=answer)
+            ])
         except Exception as e:
-            st.session_state.messages.append({"role": "assistant", "content": f"Oof, something went wrong: {e}"})
-            with st.chat_message("assistant"): st.write(f"Oof, something went wrong: {e}")
+            error_message = f"Oof, something went wrong: {e}"
+            st.session_state.messages.append({"role": "assistant", "content": error_message})
+            with st.chat_message("assistant"):
+                st.write(error_message)
+
+if 'kickstarter_used' not in st.session_state:
+    st.session_state.kickstarter_used = False
+
+if not st.session_state.kickstarter_used:
+    st.markdown("**Quick actions — click to ask a question**")
+    cols = st.columns(2)
+    kickstarter_questions = [
+        ("What is the Mid term schedule?", "What is the Mid term schedule?"),
+        ("When is Youthopia fest?", "When is Youthopia fest?"),
+        ("Time Table for Today", f"What is the timetable for {datetime.now().strftime('%A')}?"),
+        ("What's on the mess menu?", f"What food is available in mess on {datetime.now().strftime('%A')}?")
+    ]
+    for i, (label, actual_prompt) in enumerate(kickstarter_questions):
+        with cols[i % 2]:
+            if st.button(label, use_container_width=True):
+                st.session_state.kickstarter_used = True
+                handle_query(actual_prompt)
+                st.rerun()
+
+# Chat input
+if prompt := st.chat_input("Ask me something about the university..."):
+    st.session_state.kickstarter_used = True
+    handle_query(prompt)
