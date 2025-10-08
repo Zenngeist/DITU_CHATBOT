@@ -1,9 +1,11 @@
 python-dotenv
 streamlit
-langchain>=0.2
-langchain-community>=0.2
-langchain-google-genai>=1.0.0
-chromadb==0.4.3
+pydantic==2.11.9
+langchain==0.2.34
+langchain-core==0.2.34
+chromadb==0.5.0
+langchain-text-splitters==0.2.2
+langchain-google-genai==1.0.7
 fastapi
 uvicorn
 pypdf>=4.0.0
