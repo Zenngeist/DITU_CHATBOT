@@ -147,8 +147,8 @@ Helpful Answer:
     QA_PROMPT = PromptTemplate(template=qa_prompt_template, input_variables=["context", "question"])
 
     llm = ChatGoogleGenerativeAI(
-        model="gemini-1.5-flash", # Updated model name
-        temperature=0.2,
+        model="gemini-2.5-flash", # Updated model name
+        temperature=0.5,
         google_api_key=GOOGLE_API_KEY
     )
 
